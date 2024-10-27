@@ -5,6 +5,7 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
   sendWelcomeEmail,
+  sendResetSuccessEmail,
 } from "../mailtrap/emails.js";
 import { User } from "../models/user.model.js";
 
@@ -142,7 +143,7 @@ export const forgotPassword = async (req, res) => {
     const resetTokenExpiresAt = Date.now() + 1 * 60 * 60 * 1000; // 1 hour
 
     user.resetPasswordToken = resetToken;
-    user.resetPasswordTokenExpiresAt = resetTokenExpiresAt;
+    user.resetPasswordExpiresAt = resetTokenExpiresAt;
 
     await user.save();
 
@@ -167,33 +168,53 @@ export const resetPassword = async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
 
+    console.log("Reset password request received.");
+    console.log("Token from URL:", token);
+    console.log("New password:", password);
+
     const user = await User.findOne({
       resetPasswordToken: token,
       resetPasswordExpiresAt: { $gt: Date.now() },
     });
 
+    console.log("User found:", user);
+
     if (!user) {
+      console.log("No user found with this token, or the token has expired.");
       return res
         .status(400)
         .json({ success: false, message: "Invalid or expired reset token" });
     }
 
-    // update password
-    const hashedPassword = await bcryptjs.hash(password, 10);
+    // If user is found, log the current token and expiration details
+    console.log("Token in database:", user.resetPasswordToken);
+    console.log(
+      "Token expiration date:",
+      new Date(user.resetPasswordExpiresAt)
+    );
 
+    // Hash the new password
+    const hashedPassword = await bcryptjs.hash(password, 10);
     user.password = hashedPassword;
+
+    // Clear the reset token and expiration fields
     user.resetPasswordToken = undefined;
     user.resetPasswordExpiresAt = undefined;
-    await user.save();
 
+    // Save the user with the new password
+    await user.save();
+    console.log("Password updated and user saved.");
+
+    // Send success email
     await sendResetSuccessEmail(user.email);
+    console.log("Password reset success email sent.");
 
     res
       .status(200)
       .json({ success: true, message: "Password reset successful" });
   } catch (error) {
-    console.log("Error in resetPassword ", error);
-    res.status(400).json({ success: false, message: error.message });
+    console.log("Error in resetPassword function:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
